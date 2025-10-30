@@ -2,6 +2,13 @@ import { ReactNode } from 'react'
 import type { Authors } from 'contentlayer/generated'
 import SocialIcon from '@/components/social-icons'
 import Image from '@/components/Image'
+import Link from 'next/link'
+import { zennArticles } from '@/data/output/zenn'
+import { qiitaArticles } from '@/data/output/qiita'
+import { noteArticles } from '@/data/output/note'
+import { speakerDecks } from '@/data/output/speaker-deck'
+import { onesiteArticles } from '@/data/output/onesite'
+import { productionAchievements } from '@/data/output/production_achievements'
 
 interface Props {
   children: ReactNode
@@ -19,7 +26,7 @@ export default function AuthorLayout({ children, content }: Props) {
             About
           </h1>
         </div>
-        <div className="items-start space-y-2 xl:grid xl:grid-cols-3 xl:space-y-0 xl:gap-x-8">
+        <div className="items-start space-y-2">
           <div className="flex flex-col items-center space-x-2 pt-8">
             {avatar && (
               <Image
@@ -30,7 +37,7 @@ export default function AuthorLayout({ children, content }: Props) {
                 className="h-48 w-48 rounded-full"
               />
             )}
-            <h3 className="pt-4 pb-2 text-2xl leading-8 font-bold tracking-tight">{name}</h3>
+            <h3 className="pt-4 pb-2 text-xl leading-8 font-bold tracking-tight">{name}</h3>
             <div className="text-gray-500 dark:text-gray-400">{occupation}</div>
             <div className="text-gray-500 dark:text-gray-400">{origin}</div>
             <div className="flex space-x-3 pt-6">
@@ -40,8 +47,163 @@ export default function AuthorLayout({ children, content }: Props) {
               <SocialIcon kind="zenn" href={zenn} />
             </div>
           </div>
-          <div className="prose dark:prose-invert max-w-none pt-8 pb-8 xl:col-span-2">
-            {children}
+          <div className="mt-14">
+            <div className="mb-5">
+              {/* Zenn */}
+              <h3 className="pt-4 pb-2 text-xl leading-8 font-bold tracking-tight">Zenn</h3>
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                {zennArticles.map((item) => (
+                  <Link
+                    key={item.position}
+                    href={item.url}
+                    target="_blank"
+                    className="rounded border border-gray-600"
+                  >
+                    <Image
+                      src={item.thumbnail}
+                      alt=""
+                      width={200}
+                      height={100}
+                      className="h-auto w-full rounded"
+                    />
+                    <div className="p-2">
+                      <p className="text-sm font-bold break-all">{item.title}</p>
+                      <span className="text-xs text-gray-300">{item.publishedAt}</span>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </div>
+            {/* Qiita */}
+            <div className="mb-5">
+              <h3 className="pt-4 pb-2 text-xl leading-8 font-bold tracking-tight">Qiita</h3>
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                {qiitaArticles.map((item) => (
+                  <Link
+                    key={item.position}
+                    href={item.url}
+                    target="_blank"
+                    className="rounded border border-gray-600"
+                  >
+                    <Image
+                      src={item.thumbnail}
+                      alt=""
+                      width={200}
+                      height={100}
+                      className="h-auto w-full rounded"
+                    />
+                    <div className="p-2">
+                      <p className="text-sm font-bold break-all">{item.title}</p>
+                      <span className="text-xs text-gray-300">{item.publishedAt}</span>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </div>
+            {/* note */}
+            <div className="mb-5">
+              <h3 className="pt-4 pb-2 text-xl leading-8 font-bold tracking-tight">note</h3>
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                {noteArticles.map((item) => (
+                  <Link
+                    key={item.position}
+                    href={item.url}
+                    target="_blank"
+                    className="rounded border border-gray-600"
+                  >
+                    <Image
+                      src={item.thumbnail}
+                      alt=""
+                      width={200}
+                      height={100}
+                      className="h-auto w-full rounded"
+                    />
+                    <div className="p-2">
+                      <p className="text-sm font-bold break-all">{item.title}</p>
+                      <span className="text-xs text-gray-300">{item.publishedAt}</span>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </div>
+            {/* speaker deck */}
+            <div className="mb-5">
+              <h3 className="pt-4 pb-2 text-xl leading-8 font-bold tracking-tight">Speaker Deck</h3>
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                {speakerDecks.map((item) => (
+                  <Link
+                    key={item.position}
+                    href={item.url}
+                    target="_blank"
+                    className="rounded border border-gray-600"
+                  >
+                    <Image
+                      src={item.thumbnail}
+                      alt=""
+                      width={200}
+                      height={100}
+                      className="h-auto w-full rounded"
+                    />
+                    <div className="p-2">
+                      <p className="text-sm font-bold break-all">{item.title}</p>
+                      <span className="text-xs text-gray-300">{item.publishedAt}</span>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </div>
+            {/* onesite */}
+            <div className="mb-5">
+              <h3 className="pt-4 pb-2 text-xl leading-8 font-bold tracking-tight">OneSite</h3>
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                {onesiteArticles.map((item) => (
+                  <Link
+                    key={item.position}
+                    href={item.url}
+                    target="_blank"
+                    className="rounded border border-gray-600"
+                  >
+                    <Image
+                      src={item.thumbnail}
+                      alt=""
+                      width={200}
+                      height={100}
+                      className="h-auto w-full rounded"
+                    />
+                    <div className="p-2">
+                      <p className="text-sm font-bold break-all">{item.title}</p>
+                      <span className="text-xs text-gray-300">{item.publishedAt}</span>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </div>
+            {/* productionAchievements */}
+            <div className="mb-5">
+              <h3 className="pt-4 pb-2 text-xl leading-8 font-bold tracking-tight">制作実績</h3>
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                {productionAchievements.map((item) => (
+                  <Link
+                    key={item.position}
+                    href={item.url}
+                    target="_blank"
+                    className="rounded border border-gray-600"
+                  >
+                    <Image
+                      src={item.thumbnail}
+                      alt=""
+                      width={200}
+                      height={100}
+                      className="h-auto w-full rounded"
+                    />
+                    <div className="p-2">
+                      <p className="text-sm font-bold break-all">{item.title}</p>
+                      <span className="text-xs text-gray-300">{item.publishedAt}</span>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       </div>

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 const { withContentlayer } = require('next-contentlayer2')
 
 const withBundleAnalyzer = require('@next/bundle-analyzer')({
@@ -77,6 +78,46 @@ module.exports = () => {
         {
           protocol: 'https',
           hostname: 'picsum.photos',
+        },
+        {
+          protocol: 'https',
+          hostname: 'res.cloudinary.com',
+        },
+        {
+          protocol: 'https',
+          hostname: 'qiita-user-contents.imgix.net',
+        },
+        {
+          protocol: 'https',
+          hostname: 'files.speakerdeck.com',
+        },
+        {
+          protocol: 'https',
+          hostname: 'images.microcms-assets.io',
+        },
+        {
+          protocol: 'https',
+          hostname: 'giftsakuma.com',
+        },
+        {
+          protocol: 'https',
+          hostname: 'stampmura.com',
+        },
+        {
+          protocol: 'https',
+          hostname: 'hairroom-hacci.jp',
+        },
+        {
+          protocol: 'https',
+          hostname: 'parabolainc.jp',
+        },
+        {
+          protocol: 'https',
+          hostname: 'nagataki.xyz',
+        },
+        {
+          protocol: 'https',
+          hostname: 'toku5.style',
         },
       ],
       unoptimized,
