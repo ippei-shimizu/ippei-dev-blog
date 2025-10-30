@@ -34,7 +34,7 @@ public/robots.txt
 app/tag-data.json
 .contentlayer
 
-# lock files
+# lock files (keep in git, but don't format)
 package-lock.json
 yarn.lock
 pnpm-lock.yaml
