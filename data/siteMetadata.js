@@ -9,7 +9,7 @@ const siteMetadata = {
   siteUrl: 'https://ippei.dev',
   siteRepo: 'https://github.com/ippei-shimizu/ippei-dev-blog',
   siteLogo: `${process.env.BASE_PATH || ''}/static/images/site-icon.png`,
-  socialBanner: `${process.env.BASE_PATH || ''}/static/images/twitter-card.png`,
+  socialBanner: `${process.env.BASE_PATH || ''}/static/images/ogp.png`,
   mastodon: 'https://mastodon.social/@mastodonuser',
   email: 'ippei.shimizu.32@gmail.com',
   github: 'https://github.com/ippei-shimizu',
