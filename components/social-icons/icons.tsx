@@ -110,3 +110,23 @@ export function Bluesky(svgProps: SVGProps<SVGSVGElement>) {
     </svg>
   )
 }
+
+export function Zenn(svgProps: SVGProps<SVGSVGElement>) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" {...svgProps}>
+      <title>Zenn</title>
+      <g fill="currentColor">
+        <path d="M1.06 22.63h4.62c.24 0 .46-.14.6-.33l13.4-21.9c.16-.27-.03-.6-.35-.6H14.3c-.22 0-.41.11-.52.3L.84 22.24c-.08.16.01.39.22.39z" />
+        <path d="M16.99 22.3l6.01-9.65c.19-.3-.03-.68-.38-.68h-4.35c-.16 0-.33.08-.41.22L11.69 22.04c-.16.24.03.57.33.57h4.43c.21 0 .4-.11.54-.31z" />
+      </g>
+    </svg>
+  )
+}
+
+export function Qiita(svgProps: SVGProps<SVGSVGElement>) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" {...svgProps}>
+      <title>Qiita</title>
+    </svg>
+  )
+}

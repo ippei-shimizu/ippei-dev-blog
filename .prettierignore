@@ -1,0 +1,40 @@
+# dependencies
+node_modules
+.yarn
+
+# build output
+.next
+out
+dist
+build
+.contentlayer
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# local env files
+.env*.local
+
+# cache
+.cache
+.turbo
+
+# public
+public/sitemap*.xml
+public/feed.xml
+public/robots.txt
+
+# generated
+app/tag-data.json
+.contentlayer
+
+# lock files
+package-lock.json
+yarn.lock
+pnpm-lock.yaml

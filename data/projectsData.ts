@@ -7,20 +7,10 @@ interface Project {
 
 const projectsData: Project[] = [
   {
-    title: 'A Search Engine',
-    description: `What if you could look up any information in the world? Webpages, images, videos
-    and more. Google has many features to help you find exactly what you're looking
-    for.`,
-    imgSrc: '/static/images/google.png',
-    href: 'https://www.google.com',
-  },
-  {
-    title: 'The Time Machine',
-    description: `Imagine being able to travel back in time or to the future. Simple turn the knob
-    to the desired date and press "Go". No more worrying about lost keys or
-    forgotten headphones with this simple yet affordable solution.`,
-    imgSrc: '/static/images/time-machine.jpg',
-    href: '/blog/the-time-machine',
+    title: 'BUZZ BASE',
+    description: `BUZZ BASEは、野球の個人の打撃・投手成績を記録することができる無料のアプリです。自分の成績を記録するだけでなく、友達とグループを作成し「ランキング形式」で個人成績を共有・比較することもできます。`,
+    imgSrc: '/static/images/buzz-ogp.png',
+    href: 'https://buzzbase.jp/',
   },
 ]
 
