@@ -3,7 +3,7 @@ const siteMetadata = {
   title: 'Ippei.dev',
   author: 'Ippei',
   headerTitle: 'Ippei.dev',
-  description: 'A blog about web development and programming.',
+  description: 'プログラミングやWeb開発について学んだことを雑にまとめるブログ',
   language: 'ja-jp',
   theme: 'system', // system, dark or light
   siteUrl: 'https://ippei.dev',
