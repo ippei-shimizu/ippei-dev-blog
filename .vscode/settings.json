@@ -1,4 +1,17 @@
 {
   "typescript.tsdk": "node_modules/typescript/lib",
-  "typescript.enablePromptUseWorkspaceTsdk": true
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+  "editor.wordWrapColumn": 100,
+  "editor.rulers": [100],
+  "[mdx]": {
+    "editor.wordWrap": "bounded",
+    "editor.wordWrapColumn": 100,
+    "editor.rulers": [100]
+  },
+  "[markdown]": {
+    "editor.wordWrap": "bounded",
+    "editor.wordWrapColumn": 100,
+    "editor.rulers": [100]
+  },
+  "editor.wordWrap": "on"
 }
