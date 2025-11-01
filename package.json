@@ -9,6 +9,9 @@
     "serve": "next start",
     "analyze": "cross-env ANALYZE=true next build",
     "lint": "next lint --fix --dir pages --dir app --dir components --dir lib --dir layouts --dir scripts",
+    "lint:check": "next lint --dir pages --dir app --dir components --dir lib --dir layouts --dir scripts",
+    "type-check": "tsc --noEmit",
+    "lint:all": "yarn lint:check && yarn type-check",
     "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,css,md,mdx}\"",
     "format:check": "prettier --check \"**/*.{js,jsx,ts,tsx,json,css,md,mdx}\"",
     "prepare": "husky"

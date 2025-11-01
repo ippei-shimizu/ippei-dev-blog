@@ -31,7 +31,12 @@ function extractTextFromChildren(children: unknown): string {
     }
 
     // Recursively process children
-    if (element.props && 'children' in element.props) {
+    if (
+      element.props &&
+      typeof element.props === 'object' &&
+      element.props !== null &&
+      'children' in element.props
+    ) {
       return extractTextFromChildren(element.props.children)
     }
   }
