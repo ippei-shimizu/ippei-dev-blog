@@ -1,0 +1,249 @@
+---
+title: Railsのデザインパターン
+date: '2025-8-31'
+tags: ['Ruby on Rails', 'デザインパターン', 'ソフトウェア設計']
+draft: false
+summary: Ruby on Railsアプリケーションにおけるデザインパターンの種類とそれぞれの活用方法について解説する
+---
+
+## なぜデザインパターンが必要なのか
+
+Railsには「設定より規約（Convention over Configuration）」という哲学があり、MVCアーキテクチャというシンプルな構造が用意されています。しかし、アプリケーションが成長するにつれて、ControllerやModelが肥大化していく問題に直面してしまうケースがあります。これがいわゆる「Fat Controller」や「Fat Model」と呼ばれる状態です。
+
+例えば、ユーザー登録処理で単純なCRUDであれば問題ありませんが、実際のビジネスロジックでは「メール送信」「外部APIへの通知」「ログの記録」など、多くの責務が発生するケースがあります。これらを全てControllerやModelに詰め込むとコードの見通しが悪くなり、保守性が低下し、テストも困難になります。
+
+デザインパターンは、このような問題を解決するために役立つ手法です。
+
+## Service Objectパターン
+
+Service Objectは、ビジネスロジックをカプセル化するパターンです。「1つのサービスクラスは1つのアクションを実行する」という単一責任の原則に従います。
+
+複数モデルにまたがるコールバックやアクセスをService Objectにまとめることで、Modelのコールバックで外部APIを呼び出したりせずに済みます。
+
+### Service Objectを使用する際の注意点
+
+#### 1. 命名規則を統一する
+
+大きく分けて2つのアプローチがあります。一つ目は「UserCreator」などのように、「〜or」で終わる名詞形、もう一つは「CreateUser」などのように動詞を先頭に置く方法です。後者の方が「このServiceが何をするのかがわかりやすい」のでおすすめです。
+
+#### 2. 直接インスタンス化せず、クラスメソッド経由で呼ぶ
+
+毎回インスタンス化してからcallメソッドを呼ぶのは冗長です。以下のようにServiceモジュールを使用するとこの問題は解決できます。
+
+```ruby
+# app/services/concerns/service.rb
+module Service
+  extend ActiveSupport::Concern
+
+  class_methods do
+    def call(*args, **kwargs)
+      new(*args, **kwargs).call
+    end
+  end
+end
+```
+
+このモジュールをincludeすることで、呼び出しがシンプルになります。
+
+```ruby
+# 冗長な書き方
+service = CreateUser.new(params)
+result = service.call
+
+# シンプルな書き方
+result = CreateUser.call(params)
+```
+
+この抽象化により、Service Objectの使用者は実装の詳細を気にする必要がなくなります。
+
+#### 3. 呼び出しメソッド名を統一する
+
+call, perform, execute, runなどの候補がありますが、1つに統一することが重要です。理由は、Service Objectの責務はクラス名で既に明示されているので、メソッド名を変える必要がないからです。
+
+#### 4. 単一責任の原則を徹底する
+
+1つのServiceが1つのアクションだけを実行することを徹底する。複数の責務を持つアンチパターンは避けるべきです。
+
+```ruby
+# 悪い例: 複数の責務を持つService
+
+class ManageUser
+  def initialize(action:, user_params:)
+    @action = action
+    @user_params = user_params
+  end
+
+  def call
+    case @action
+    when 'create'
+      create_user
+    when 'delete'
+      delete_user
+    when 'update'
+      update_user
+    end
+  end
+end
+```
+
+#### 5. コンストラクタをシンプルに保つ
+
+コンストラクタの責務は、引数をインスタンス変数に保存することに限定するべきです。
+
+```ruby
+# アンチパターン
+class DeleteUser
+  def initialize(user_id:)
+    @user = User.find(user_id)  # コンストラクタでDBアクセス
+  end
+
+  def call
+    # 削除処理
+  end
+end
+```
+
+```ruby
+# 良い例
+class DeleteUser
+  def initialize(user_id:)
+    @user_id = user_id  # 値を保存するだけ
+  end
+
+  def call
+    delete_user
+    send_notification
+  end
+
+  private
+
+  attr_reader :user_id
+
+  def user
+    @user ||= User.find(user_id)  # 実際に必要になった時に取得
+  end
+end
+```
+
+この方法なら、テストでcallメソッドだけモックすれば良い。また、userメソッドをメモ化しているので、同じユーザーを何度もDBから取得する無駄を省けます。
+
+#### 6. callメソッドの引数をキーワード引数にする
+
+引数が複数ある場合、キーワード引数を使用することで可読性が向上します。
+
+```ruby
+# 位置引数: 何を渡しているのか分からない
+UpdateUser.call(params[:user], false)
+
+# キーワード引数: 意図が明確
+UpdateUser.call(attributes: params[:user], send_notification: false)
+```
+
+実際のプロジェクトではこんな感じなりそうです。
+
+```ruby
+class GenerateExamSummary
+  include Service
+
+  def initialize(exam_id:, student_id:, include_ai_feedback: true)
+    @exam_id = exam_id
+    @student_id = student_id
+    @include_ai_feedback = include_ai_feedback
+  end
+
+  def call
+    # 処理
+  end
+end
+
+# 呼び出し側で意図が明確
+GenerateExamSummary.call(
+  exam_id: params[:exam_id],
+  student_id: current_user.id,
+  include_ai_feedback: false
+)
+```
+
+#### 7. 結果をステートリーダー経由で返す
+
+Service Objectから情報を取り出す必要がある場合、単純にtrue/falseを返す方法と、Service Object自身を返してステートを読み取る方法があります。
+
+#### 8. トランザクションでラップする
+
+複数のデータベース操作を含む場合、途中で処理が失敗した場合に一貫性を保つためにトランザクションを使用すべきです。
+
+## Form Object
+
+Form Objectは、複雑なフォーム処理やバリデーションをModelから分離するパターンです。特に、複数のモデルにまたがるフォームや、DBに永続化しない一時的なデータを扱う際に有効です。
+
+複数のモデルにまたがるフォームの場合で、Form Objectを使用しないとControllerに複雑なロジックを書くことになってしまいます。
+
+シンプルなお問い合わせフォームで考えてみます。
+
+```ruby
+# app/forms/contact_form.rb
+class ContactForm
+  include ActiveModel::Model
+
+  # フォームの属性を定義
+  attr_accessor :name, :email, :subject, :message
+
+  # バリデーションを定義
+  validates :name, presence: true
+  validates :email, presence: true, format: { with: URI::MailTo::EMAIL_REGEXP }
+  validates :subject, presence: true
+  validates :message, presence: true, length: { minimum: 10 }
+end
+```
+
+attr_accessorで属性を定義し、validatesでバリデーションを設定しています。
+
+Controllerでは以下のように使用します。
+
+```ruby
+class ContactsController < ApplicationController
+  def new
+    @contact_form = ContactForm.new
+  end
+
+  def create
+    @contact_form = ContactForm.new(contact_params)
+
+    if @contact_form.valid?
+      # メール送信処理
+      ContactMailer.inquiry(@contact_form).deliver_later
+      redirect_to root_path, notice: "お問い合わせを送信しました"
+    else
+      # バリデーションエラーがあれば再表示
+      render :new
+    end
+  end
+
+  private
+
+  def contact_params
+    params.require(:contact_form).permit(:name, :email, :subject, :message)
+  end
+end
+```
+
+### Form ObjectとModelの役割分担
+
+Modelにはドメインロジックとしてバリデーションを、Form Objectにはフォーム固有のバリデーションを実装します。
+
+### Form Objectを使用すべきではない場面
+
+- 単一のモデルに対する単純なCRUD操作
+- ビジネスロジックがほとんどない場合
+
+## Decorator/Presenter
+
+Decoratorパターンは、Viewロジックをカプセル化するために使用します。ModelにView固有のメソッドは追加せず、Decoratorクラスでラップすることで、コードの責務を分離します。
+
+## Concerns
+
+Concernsは、複数のモデルやコントローラーで共通するロジックをモジュールとして切り出すパターンです。
+
+## 参考
+
+- [Railsで重要なパターンpart 1: Service Object（翻訳）](https://techracho.bpsinc.jp/hachi8833/2022_03_17/46482)
