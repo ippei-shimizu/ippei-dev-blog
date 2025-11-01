@@ -68,7 +68,9 @@ export default function AuthorLayout({ children, content }: Props) {
                     />
                     <div className="p-2">
                       <p className="text-sm font-bold break-all">{item.title}</p>
-                      <span className="text-xs text-gray-300">{item.publishedAt}</span>
+                      <span className="text-xs text-gray-600 dark:text-gray-300">
+                        {item.publishedAt}
+                      </span>
                     </div>
                   </Link>
                 ))}
@@ -94,7 +96,9 @@ export default function AuthorLayout({ children, content }: Props) {
                     />
                     <div className="p-2">
                       <p className="text-sm font-bold break-all">{item.title}</p>
-                      <span className="text-xs text-gray-300">{item.publishedAt}</span>
+                      <span className="text-xs text-gray-600 dark:text-gray-300">
+                        {item.publishedAt}
+                      </span>
                     </div>
                   </Link>
                 ))}
@@ -120,7 +124,9 @@ export default function AuthorLayout({ children, content }: Props) {
                     />
                     <div className="p-2">
                       <p className="text-sm font-bold break-all">{item.title}</p>
-                      <span className="text-xs text-gray-300">{item.publishedAt}</span>
+                      <span className="text-xs text-gray-600 dark:text-gray-300">
+                        {item.publishedAt}
+                      </span>
                     </div>
                   </Link>
                 ))}
@@ -146,7 +152,9 @@ export default function AuthorLayout({ children, content }: Props) {
                     />
                     <div className="p-2">
                       <p className="text-sm font-bold break-all">{item.title}</p>
-                      <span className="text-xs text-gray-300">{item.publishedAt}</span>
+                      <span className="text-xs text-gray-600 dark:text-gray-300">
+                        {item.publishedAt}
+                      </span>
                     </div>
                   </Link>
                 ))}
@@ -172,7 +180,9 @@ export default function AuthorLayout({ children, content }: Props) {
                     />
                     <div className="p-2">
                       <p className="text-sm font-bold break-all">{item.title}</p>
-                      <span className="text-xs text-gray-300">{item.publishedAt}</span>
+                      <span className="text-xs text-gray-600 dark:text-gray-300">
+                        {item.publishedAt}
+                      </span>
                     </div>
                   </Link>
                 ))}
@@ -198,7 +208,9 @@ export default function AuthorLayout({ children, content }: Props) {
                     />
                     <div className="p-2">
                       <p className="text-sm font-bold break-all">{item.title}</p>
-                      <span className="text-xs text-gray-300">{item.publishedAt}</span>
+                      <span className="text-xs text-gray-600 dark:text-gray-300">
+                        {item.publishedAt}
+                      </span>
                     </div>
                   </Link>
                 ))}
