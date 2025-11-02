@@ -1,7 +1,7 @@
 /** @type {import("pliny/config").PlinyConfig } */
 const siteMetadata = {
   title: 'Ippei.dev',
-  author: 'Ippei',
+  author: 'Ippei Shimizu',
   headerTitle: 'Ippei.dev',
   description: 'プログラミングやWeb開発について学んだことを雑にまとめるブログ',
   language: 'ja-jp',
