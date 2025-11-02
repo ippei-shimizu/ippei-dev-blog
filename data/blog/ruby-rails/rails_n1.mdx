@@ -1,0 +1,256 @@
+---
+title: RailsのN+1クエリ問題を深掘りしてみる
+date: '2025-01-21'
+tags: ['Ruby on Rails']
+draft: false
+summary: RailsにおけるN+1が発生してしまう原因・includes/preload/eager_loadの違い・確認方法・解決策について
+---
+
+## N+1問題が発生する原因
+
+N+1問題は、Railsの「遅延読み込み（Lazy Loading）」という仕組みから発生します。
+
+---
+
+【遅延読み込み（Lazy Loading）】<br />
+「必要になるまで実際の処理を先延ばしにする」という考え方です。Railsでの具体的な動作としては、データベースからデータを取得する時に、実は二段階の処理が行われています。
+
+```ruby
+posts = Post.where(published: true)
+```
+
+この行を実行した瞬間、まだデータベースへの問い合わせは発生していません。
+
+```ruby
+posts = Post.where(published: true)  # まだクエリは実行されない
+
+# このタイミングで初めてクエリが実行される
+posts.each do |post|
+  puts post.title
+end
+```
+
+eachでループを回そうとした時に、初めてデータベースにアクセスします。<br />
+こうすることで、下記のような複数の条件を段階的に追加することができます。
+
+```ruby
+posts = Post.where(published: true)
+
+if params[:category].present?
+  posts = posts.where(category: params[:category])
+end
+
+if params[:author_id].present?
+  posts = posts.where(author_id: params[:author_id])
+end
+
+# ここまで一切クエリは実行されていない
+# 最終的に必要な条件が全て揃った状態で、一度だけクエリが実行される
+posts.each { |post| ... }
+```
+
+もし遅延読み込みがなかったら、条件を追加するたびにデータベースにアクセスが発生してしまいます。
+
+---
+
+### 関連データにおける遅延読み込み
+
+遅延読み込みは、関連テーブルのデータにも適用されます。
+
+```ruby
+post = Post.find(1)  # 記事を1件取得
+# この時点では記事本体のデータだけがメモリにある
+
+puts post.title  # これは問題なく表示できる
+
+# ここで初めてコメントのデータが必要だと気づく
+post.comments.each do |comment|
+  puts comment.body
+end
+```
+
+`Post.find(1)`を実行した時点では、postsテーブルからデータを取得するだけです。commentsテーブルには一切アクセスしていません。その後、`post.comments`にアクセスした瞬間に、はじめてcommentsテーブルへの問い合わせが発生します。
+
+この仕組みのおかげで、必要のない関連するデータを無駄に取得することを防げます。しかし、これがN+1問題の原因にもなります。
+
+### N+1問題が発生するメカニズム
+
+```ruby
+# 10件の記事を取得(1回目のクエリ)
+posts = Post.limit(10)
+
+posts.each do |post|
+  # ループの中で毎回commentsにアクセス
+  # 記事ごとに「あ、コメントが必要だ」と気づいてクエリを実行(2〜11回目)
+  puts "#{post.title}: #{post.comments.count}件"
+end
+```
+
+Rails視点で考えてみます。最初の`Post.limit(10)`の段階では、まだコメントデータを必要とするかはRailsは知りません。そのため、記事データだけ取得しています。そして、ループに入って初めて1件目の記事に対して、`post.comments`にアクセスした時に、コメントデータ必要なんだと気がついてクエリを発行します。同様に、2件目・3件目でも同じことが起こります。
+
+Railsが「多分、残り9件の記事でもコメントデータが必要だろう」と予測してくれれば、毎回コメントデータを取得するクエリは発行されずに済みます。
+
+### 遅延読み込みと事前読み込みの対比
+
+この問題を解決するのが、事前読み込み（Eager Loading）です。遅延読み込みの対極にある考え方で、最初の段階で記事とコメントの両方のデータを一括で取得しています。
+
+```ruby
+# 「コメントも必要になる」と事前に宣言する
+posts = Post.includes(:comments).limit(10)
+
+posts.each do |post|
+  # この時点でコメントは既にメモリ上にあるので、追加のクエリは発生しない
+  puts "#{post.title}: #{post.comments.count}件"
+end
+```
+
+`includes`を使用することで、「これから、コメントのデータが必要になります」とRailsに事前に伝えることができます。こうすることで、Railsは最初の段階で記事とコメントの両方を取得しておいてくれます。
+
+つまり、遅延読み込みはデフォルトの挙動であり。事前読み込みは明示的に指定する最適化ということになります。
+
+しかし、なぜRailsは最初から全部のデータを取得しないといけないのかという疑問がわきます。<br />
+多くの場合では、関連データは不要だからです。遅延読み込みは、「デフォルトでは最小限のデータだけを取得し、必要になった時に追加で読み込む」というアプローチです。
+
+## includes/preload/eager_loadの違い
+
+includes、preload、eager_loadは、全て同じ目的でN+1問題の解決を行いますが、アプローチ方法が異なります。まず、それぞれの違いを理解するために、データベースからどのようにデータを取得するかという観点から見ていきます。
+
+データベースから関連データを取得する方法は、大きく分けて2つあります。1つは「複数回に分けて取得する方法」、もう一つは「JOINを使って一度に取得する方法」です。preloadは前者でeager_loadは後者です。そして、includesは状況に応じてどちらの方法を使うかを自動的に判断してくれる便利なメソッドです。
+
+### preload
+
+preloadは、「まずメインのテーブルからデータを取得し、次に関連テーブルからデータを取得する」方法です。
+
+例えば、記事とその著者を取得する場合を考えてみます。
+
+```ruby
+# preloadを使った場合
+posts = Post.preload(:author).limit(10)
+
+posts.each do |post|
+  puts "#{post.title} by #{post.author.name}"
+end
+```
+
+このコードは内部で2つのクエリを実行します。
+
+```sql
+-- 1つ目のクエリ：記事を取得
+SELECT * FROM posts LIMIT 10
+
+-- 2つ目のクエリ：取得した記事の著者を一括取得
+SELECT * FROM authors WHERE id IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+```
+
+このアプローチは、最初のクエリで記事IDを取得し、次のクエリでそれらのIDに対応する著者データを一括で取得します。Railsは内部でこれらのデータをメモリ上で関連づけるので、ループ内で`post.author`にアクセスしても追加のクエリは発生しません。
+
+preloadの利点は、クエリが単純で予測可能であることです。それぞれのテーブルから必要なデータを取得するので、無駄がありません。<br />
+デメリットとしては、関連テーブルの条件をWHEREで絞り込むことができない点です。
+
+```ruby
+# これはエラーになる
+Post.preload(:author).where(authors: { country: 'Japan' })
+# => エラー: authorsテーブルがクエリに含まれていない
+```
+
+preloadは最初にpostsテーブルだけを検索するため、authorsテーブルの条件を使うことができないからです。
+
+### eager_load
+
+eager_loadは、LEFT OUTER JOINを使って、全てのデータを一度のクエリで取得します。
+
+```ruby
+# eager_loadを使った場合
+posts = Post.eager_load(:author).limit(10)
+
+posts.each do |post|
+  puts "#{post.title} by #{post.author.name}"
+end
+```
+
+このコードは1つの大きなクエリで実行します。
+
+```sql
+-- 1つのクエリで全データを取得
+SELECT
+  posts.id AS t0_r0,
+  posts.title AS t0_r1,
+  posts.content AS t0_r2,
+  authors.id AS t1_r0,
+  authors.name AS t1_r1,
+  authors.country AS t1_r2
+FROM posts
+LEFT OUTER JOIN authors ON authors.id = posts.author_id
+LIMIT 10
+```
+
+eager_loadの最大の利点は、関連テーブルの条件を使った検索が可能になることです。
+
+```ruby
+# これは正しく動作する
+posts = Post.eager_load(:author).where(authors: { country: 'Japan' })
+
+# こんな複雑な条件も可能
+posts = Post.eager_load(:author, :comments)
+            .where(authors: { verified: true })
+            .where('comments.created_at > ?', 1.week.ago)
+```
+
+JOINによってauthorsテーブルがクエリに含まれるため、WHEREでauthorsの条件を指定できます。<br />
+デメリットとしては、JOINによってデータが重複する可能性があるので、1つの記事に10件のコメントがある場合に、その記事のデータが10回繰り返されることになります。
+
+### includes
+
+includesは、preloadとeager_loadの両方の特性を組み合わせた便利なメソッドです。このメソッドは状況を判断して、自動的に最適な戦略を選択してくれます。
+
+基本的には、関連テーブルの条件を使っていない場合はpreloadを使い、関連テーブルの条件を使っている場合はeager_loadを使います。
+
+```ruby
+# ケース1：条件なし → preloadが使われる（2つのクエリ）
+Post.includes(:author).limit(10)
+
+# ケース2：関連テーブルの条件あり → eager_loadが使われる（JOINクエリ）
+Post.includes(:author).where(authors: { country: 'Japan' })
+
+# ケース3：referencesを明示 → eager_loadが使われる
+Post.includes(:author).references(:author).limit(10)
+```
+
+自動で判断してくれる便利なメソッドではありますが、includesの正しい挙動を理解していないと、予期しない動作になることがあります。
+
+例えば、下記のようなコードを考えてみます。
+
+```ruby
+# 実はこれだけではauthorsの条件でフィルタリングされない
+posts = Post.includes(:author)
+
+posts.each do |post|
+  # ここでpost.authorがnilの場合もある
+  next if post.author.nil?
+  puts post.author.name if post.author.country == 'Japan'
+end
+```
+
+このコードは、全ての記事を取得した後、アプリケーション側で日本の著者だけをフィルタリングしています。しかし、データベース側でフィルタリングする方が効率的です。
+
+```ruby
+# データベース側でフィルタリング
+posts = Post.includes(:author).where(authors: { country: 'Japan' })
+# または、メソッドチェーンの途中でmergeを使う
+posts = Post.includes(:author).merge(Author.where(country: 'Japan'))
+```
+
+## まとめ
+
+N+1問題が発生する原因としては、Railsデフォルトの遅延読み込みが関係しています。Railsの遅延読み込みは、アプリケーション側でデータが必要になった時に、初めてデータベースへの問い合わせが発生する仕組みです。これにより、複数の条件を段階的に追加できるメリットがありますが、関連するデータを取得する際にはN+1問題が発生するケースがあります。
+
+最初に、Post.limit(10)のようにデータを取得して、アプリケーション側でループを回してデータを処理する際に、関連するデータあると、記事データごとに関連データを取得するクエリが発生してしまい、N+1問題が発生します。
+
+この問題を解決するのが、事前読み込みです。事前読み込みは、関連するデータを事前に取得しておくことで、上記のN+1問題を防ぐことができます。<br />
+Railsでは、includes, preload, eager_loadの3つのメソッドが用意されており、それぞれ異なるアプローチで事前読み込みを実現します。
+
+preloadは、最初にメインテーブルからデータを取得して、次に関連テーブルからデータを取得する方法です。これにより、メインテーブルから取得したデータのIDを使って、関連テーブルから必要なレコードを一括で取得できるので、効率的にデータを取得できます。しかし、WHERE句で関連テーブルの条件を指定することはできません。
+
+eager_loadは、LEFT OUTER JOINを使って、全てのデータを一括で取得します。これにより、関連テーブルの条件をWHERE句で指定できるようになりますが、JOINによってデータが重複する可能性があります。
+
+includesは、preloadとeager_loadを自動で使い分けてくれるメソッドになります。具体的には、関連テーブルの条件を使用していない場合はpreloadを使い、関連テーブルの条件を使用している場合はeager_loadを使います。
