@@ -1,0 +1,438 @@
+---
+title: Rails 6.1と7.2間でCookieを共有する際の暗号化方式の違いとその対処法
+date: '2025-11-07'
+tags: ['Ruby on Rails', '認証']
+draft: false
+summary: Rails 6.1と7.2間でCookieを共有する際の暗号化方式の違いとその対処法についてまとめます
+---
+
+## はじめに
+
+実務でRailsアプリケーション（Rails 6.1）と新規に開発したRailsアプリケーション（Rails 7.2）間でSSOを実現するための実装を行う機会があり、Cognitoから発行されたトークンをCookieに保存して、サブドメイン間で共有する際に、それぞれのRailsのバージョンによる暗号方式の違いでハマったので、その内容と対処法についてまとめます。
+
+## Railsにおける署名付きCookieと暗号化Cookieの仕組み
+
+まず、RailsがどのようにしてCookieを扱っているのかを調べていきます。Railsでは、通常のCookieに加えて、署名付きCookie、暗号化Cookieという3つの異なる方式でCookieを扱うことができます。
+
+### 通常のCookie
+
+通常のCookieは、Railsで`cookies[:key] = value`のように書くことで設定できます。このCookieは、ブラウザに保存される単純なテキストデータであり、ユーザーは開発者ツールを開けば簡単にその内容を確認できますし、自由に書き換えることも可能です。
+
+例えば、ユーザーの表示言語設定を保存するような用途であれば、通常のCookieで十分です。<br/>
+しかし、これが認証に関わる情報だったら、悪意のあるユーザーがCookieを書き換えて不正にアクセスする可能性があります。
+
+このように、通常のCookieは改ざんを防ぐ仕組みを持っていないため、重要な情報を保存するには適していません。
+
+### 署名付きCookie
+
+署名付きCookieは、Cookieの値が改ざんされていないことを保証する仕組みです。Railsでは`cookies.signed[:key] = value`のように書くことで、署名付きCookieを設定できます。
+
+Railsでは、ActiveSupport::MessageVerifierというクラスを使用して、Cookieの値と一緒に「署名」と呼ばれる特殊な文字列を生成します。この署名は、Cookieの値とアプリケーションの秘密鍵（SECRET_KEY_BASE）から計算される暗号学的ハッシュ値です。ユーザーがCookieの値を書き換えたとしても、正しい秘密鍵を持っていない限り、対応する正しい署名を生成することはできません。RailsがこのCookieを読み込む際には、値と署名の両方をチェックし、署名が正しくない場合はそのCookieを無効なものとして扱います。
+
+### 暗号化Cookie
+
+署名付きCookieは改ざんを防ぐことができますが、内容は誰でも読むことができます。しかし、Cookieの内容そのものを他人に見られたくない場合は、暗号化Cookieを使用します。
+
+Railsでは、`cookies.encrypted[:key] = value`のように書くことで設定できます。このCookieは、内容が暗号化されて保存されるため、ブラウザの開発者ツールで見ても元のデータを読み取ることができません。
+
+暗号化Cookieの実装には、ActiveSupport::MessageEncryptorというクラスが使用されていて、データを暗号化する機能と暗号化されたデータを元に戻す（復号化）機能があります。内部的に、MessageVerifierも使用しているため、暗号化Cookieは単にデータの暗号化をするだけでなく、その暗号化されたデータに対しても署名を付けることで、二重の保護をしています。
+
+IdP（認証プロバイダー）から発行されたアクセストークンやリフレッシュトークンといった機密性の高い情報は、悪意のある第三者に知られてしまうと、その人がユーザーになりすますことができてしまうため、必ず暗号化して保存する必要があります。
+
+### 3つのCookieの使い分け
+
+- 通常Cookie : 公開されても問題ない情報、かつユーザーが自由に変更できても構わない情報を保存する場合に使う。
+- 署名付きCookie : 内容を他人に見られても問題ないが、改竄されてはいけない情報を保存する場合に使う。
+- 暗号化Cookie : 内容を他人に見られてはいけない、かつ改竄されてはいけない情報を保存する場合に使う。
+
+## KeyGeneratorとハッシュアルゴリズムの役割
+
+暗号化Cookieを作成するためには、SECRET_KEY_BASEというアプリケーション固有の秘密鍵から、実際に暗号化と署名に使用する複数の鍵を生成する必要があります。<br />
+ここでは、鍵生成プロセスにおけるKeyGeneratorの役割と、そこで使用されるハッシュアルゴリズムについて詳しく見ていきます。
+
+このKeyGeneratorとハッシュアルゴリズムを理解することで、バージョンが違うRailsアプリケーション間でCookieの互換性問題が発生する理由が理解しやすくなります。
+
+### 一つの秘密鍵から複数の鍵を生成する必要性
+
+Railsでは、SECRET_KEY_BASEという一つのマスター秘密鍵が設定されています。この鍵は、アプリケーションのセキュリティの中心です。しかし、実際のアプリケーションでは、様々な場面で暗号化が必要になります。例えば、Cookieの暗号化、セッションデータの暗号化、署名付きURLの生成などです。
+
+ここで重要なセキュリティの原則として、「一つの鍵を複数の異なる目的に使い回してはいけない」というものがあります。これは、一つの鍵が何かしらの方法で漏洩した場合に、その被害を最小限に抑えるためです。<br />
+
+しかし、だからといって、アプリケーションに複数の異なるSECRET_KEY_BASEを設定するのも現実的ではありません。管理が煩雑になるし、設定ミスのリスクも増えます。<br />
+そこで、一つのマスター秘密鍵から、必要に応じて複数の派生鍵を生成する仕組みが必要になるのです。<br />
+この派生鍵を生成する役割を担うのがKeyGeneratorです。
+
+### KeyGeneratorの仕組み - 鍵導出関数（KDF）
+
+KeyGeneratorは、暗号学の分野で「鍵導出関数（Key Derivation Function」）と呼ばれる技術を実装したものです。KDFは、一つの秘密の値と追加の公開情報を組み合わせることで、新しい鍵を生成するというものです。
+
+```ruby
+sha1_key_generator = ActiveSupport::KeyGenerator.new(
+  secret_key_base,
+  iterations: 1000,
+  hash_digest_class: OpenSSL::Digest::SHA1
+)
+```
+
+このコードは、KeyGeneratorのインスタンスを作成しています。
+
+- `secret_key_base` : マスター秘密鍵
+- `iterations` : 鍵導出の反復回数。反復回数が多いほど、計算に時間がかかり、攻撃者が鍵を特定するのが難しくなります。
+- `hash_digest_class` : 鍵導出に使用するハッシュアルゴリズム
+
+### saltの役割
+
+```ruby
+authenticated_encrypted_cookie_salt = Rails.application.config.action_dispatch.authenticated_encrypted_cookie_salt
+key_len = ActiveSupport::MessageEncryptor.key_len
+secret = sha1_key_generator.generate_key(authenticated_encrypted_cookie_salt, key_len)
+```
+
+ここで、`generate_key`メソッドに渡されているのが、saltです。暗号学におけるsaltは、同じマスター秘密鍵から、異なる目的のために異なる派生鍵を生成するための追加情報として機能します。
+
+Railsでは、暗号化Cookieのために少なくとも2つの異なる派生鍵が必要です。一つは実際にデータを暗号化するための鍵で、もう一つはそのデータに署名をつけるための鍵です。saltを変えることで、同じマスター秘密鍵からでも、異なる派生鍵を生成することができます。
+
+### authenticated_encrypted_cookie_saltとencrypted_signed_cookie_saltの意味
+
+```ruby
+authenticated_encrypted_cookie_salt = Rails.application.config.action_dispatch.authenticated_encrypted_cookie_salt
+encrypted_signed_cookie_salt = Rails.application.config.action_dispatch.encrypted_signed_cookie_salt
+```
+
+- `authenticated_encrypted_cookie_salt` : 実際にデータを暗号化するための鍵を生成する際に使用されるsalt
+- `encrypted_signed_cookie_salt` : 暗号化されたデータに署名をつけるための鍵を生成する際に使用されるsalt
+
+```ruby
+# データを暗号化するための鍵を生成
+secret = legacy_key_generator.generate_key(authenticated_encrypted_cookie_salt, key_len)
+
+# 署名を付けるための鍵を生成
+sign_secret = legacy_key_generator.generate_key(encrypted_signed_cookie_salt)
+```
+
+同じKeyGeneratorインスタンスを使っていても、異なるsaltを渡すことで、全く異なる鍵が生成されます。この仕組みにより、一つのマスター秘密鍵から、安全に複数の用途別の鍵を作り出すことができるのです。
+
+### ハッシュアルゴリズムの役割
+
+ここまで、SECRET_KEY_BASEとsaltを組み合わせて派生鍵を生成することができるということがわかりました。しかし、ただ単純にこれらの文字列を連結するだけでは、安全な鍵生成とは言えません。<br />
+ここで重要な役割を果たすのがハッシュアルゴリズムです。
+
+ハッシュアルゴリズムは、任意の長さのデータを受け取り、固定長の出力（ハッシュ値）を生成する関数です。ハッシュ関数には以下のような特徴があります。
+
+- 同じ入力に対しては常に同じ出力を生成するという決定性
+- 出力から入力を推測することが非常に難しいという一方向性
+- わずかに異なる入力でも、全く異なる出力が得られるという雪崩効果
+
+KeyGeneratorは、このハッシュアルゴリズムを使って、SECRET_KEY_BASEとsaltから派生鍵を生成します。<br />
+
+### iterationsの役割
+
+KeyGeneratorの作成時に指定した`iterations: 1000`というパラメータは、このハッシュ関数を何回繰り返し適用するかを指定しています。<br />
+
+これは、総当たり攻撃と呼ばれる攻撃手法に対する防御のためです。もし誰かが派生鍵を手に入れたとして、そこから元のSECRET_KEY_BASEを推測しようとする場合、考えられるすべての値を試してみるという方法があります。<br />
+ハッシュ関数を一回適用するだけなら、この試行を高速に行うことができます。しかし、1000回も繰り返し適用するとなると、一つの候補を試すのに1000倍の時間がかかることになります。これにより、総当たり攻撃を実用不可能なほど時間のかかるものにできるのです。
+
+### SHA1とSHA256
+
+ここまで、ハッシュアルゴリズムが鍵生成において重要な役割を果たすことを見てきました。しかし、すべてのハッシュアルゴリズムが同じというわけではありません。<br />
+暗号化の分野では、時代と共により強力なアルゴリズムが開発され、古いアルゴリズムは徐々に使われなくなっていきます。
+
+- SHA1（Secure Hash Algorithm1） : 1995年に設計されたハッシュアルゴリズムで、長年に渡って広く使用されてきました。160ビット（20バイト）のハッシュ値を生成します。しかし、SHA1の脆弱性が発見され、特に2017年には、Googleの研究者たちが実際にSHA1の衝突攻撃（異なる入力から同じハッシュ値を生成する攻撃）に成功したことで、SHA1の安全性に対する信頼は大きく揺らぎました。
+- SHA256（Secure Hash Algorithm256） : SHA-2ファミリーの一部として2001年に設計された、より新しく強力なアルゴリズムです。その名前が示す通り、256ビット（32バイト）のハッシュ値を生成します。SHA1の160ビットと比べて、出力が長いだけでなく、内部構造も改良されており、現在知られている攻撃手法に対してより高い耐性を持っています。
+
+### 同じSECRET_KEY_BASEでも異なる鍵が生成される理由
+
+なぜ、同じSECRET_KEY_BASEを使っているのに、Rails6.1と7.2で異なる鍵が生成されるのか。
+
+鍵生成プロセスを式で表すと、以下のようになります。
+
+```
+派生鍵 = PBKDF2(SECRET_KEY_BASE, salt, iterations, ハッシュアルゴリズム)
+```
+
+この式では、SECRET_KEY_BASE、salt、iterations、ハッシュアルゴリズムが入力として使用されていますが、どれか一つでも異なれば、生成される派生鍵は全く異なるものになります。
+
+Rails 6.1では以下のようなKeyGeneratorを使用していました。
+
+```ruby
+legacy_key_generator = ActiveSupport::KeyGenerator.new(
+  secret_key_base,
+  iterations: 1000,
+  hash_digest_class: OpenSSL::Digest::SHA1
+)
+```
+
+一方、Rails 7.2では以下のように変更されています。
+
+```ruby
+modern_key_generator = ActiveSupport::KeyGenerator.new(
+  secret_key_base,
+  iterations: 1000,
+  hash_digest_class: OpenSSL::Digest::SHA256  # ここが違う！
+)
+```
+
+SECRET_KEY_BASEは同じです。saltも同じです。iterationsも同じく1000です。しかし、ハッシュアルゴリズムが異なります。Rails 6.1はSHA1を使い、Rails 7.2はSHA256を使います。
+
+この違いが、Cookie共有において重大な問題を引き起こします。Rails6.1のアプリケーションがSHA1を使って暗号化したCookieは、特定の鍵で暗号化されています。一方、Rails7.2のアプリケーションは、デフォルトでSHA256を使って鍵を生成します。同じSECRET_KEY_BASEを使用していても、実際に使用される暗号化鍵は全く異なるものになるため、Rails 7.2のアプリケーションはRails 6.1で暗号化されたCookieを復号化できないのです。
+
+## Rails 6.1と7.2の暗号化方式の違い
+
+ここまで、KeyGeneratorとハッシュアルゴリズムがどのように機能するかを理解してきました。次に、Rails 6.1とRails 7.2の間でどのような変更が行われたのか、そしてそれがなぜCookie共有の問題を引き起こすのかを詳しく見ていきます。
+
+### Railsのバージョンアップに伴う暗号方式の変更
+
+Rails 7.0で導入された大きな変更の一つが、Cookieの暗号化に関するデフォルトのハッシュアルゴリズムの変更があります。
+
+Rails 6.1まではSHA1ハッシュアルゴリズムを使用してCookieの暗号化キーを生成していましたが、Rails 7.0以降ではSHA256に変更されました。これは、SHA1の脆弱性が明らかになったことを受けて、より安全なSHA256を採用することで、アプリケーションのセキュリティを強化するための措置です。
+
+この変更により、両方のアプリケーションで同じSECRET_KEY_BASEを使用していても、生成される暗号化キーが異なるため、互換性の問題が発生します。
+
+### 互換性の問題が発生したシナリオ
+
+```
+ユーザーがアプリA（Rails 6.1）にログイン
+↓
+アプリAが認証プロバイダーから取得したアクセストークンを暗号化Cookieに保存（SHA1で暗号化）
+↓
+ユーザーがアプリB（Rails 7.2）にアクセス
+↓
+アプリBがブラウザに保存されているCookieを読み取ろうとする
+↓
+アプリBは、SHA256ベースのキーを使用して復号化を試みるが失敗
+↓
+認証が失敗する
+```
+
+## 問題の再現
+
+ここでは、実際にどのような状況で問題が発生するのかを、ステップバイステップで見ていきます。
+
+### 初期状態の設定
+
+まず、二つのRailsアプリケーションがあると仮定します。アプリA（Rails 6.1）とアプリB（Rails 7.2）です。両方のアプリケーションには、同じSECRET_KEY_BASEが設定されています。
+
+```ruby
+# アプリA（Rails 6.1）の設定
+Rails.application.config.secret_key_base = "shared_secret_key_12345"
+
+# アプリB（Rails 7.2）の設定
+Rails.application.config.secret_key_base = "shared_secret_key_12345"
+```
+
+また、Cookieを共有するために、両方のアプリケーションで同じドメイン設定を使用します。
+
+```ruby
+# Cookieのドメイン設定（両アプリケーション共通）
+def shared_cookie_domain
+  ".example.com"  # サブドメイン間で共有
+end
+```
+
+これで、app-a.example.comとapp-b.example.comの間でCookieを共有できる準備が整いました。
+
+### ステップ1：アプリAでのCookie作成
+
+ユーザーがアプリAにアクセスし、認証を行います。アプリAは、認証プロバイダーから取得したアクセストークンを暗号化Cookieに保存します。
+
+```ruby
+# アプリA（Rails 6.1）でのCookie設定
+cookies.encrypted[:auth_token] = {
+  value: "user_access_token_xyz",
+  domain: shared_cookie_domain,
+  httponly: true,
+  secure: true
+}
+```
+
+このとき、Railsは内部的に以下の処理を行います。
+
+1. SHA1ベースのKeyGeneratorが作成される
+2. 作成されたKeyGeneratorを使用して、暗号化用のキーと署名用のキーが生成される
+3. MessageEncryptorがこれらのキーを使って、`user_access_token_xyz`という値を暗号化する
+4. 暗号化されたデータがCookieとしてブラウザに保存される
+
+### ステップ2：アプリBでのCookie読み取り試行
+
+次に、ユーザーがアプリBに遷移します。アプリBは、ブラウザに保存されているCookieを読み取ろうとします。
+
+```ruby
+# アプリB（Rails 7.2）でのCookie読み取り
+token = cookies.encrypted[:auth_token]
+# => nil （復号化に失敗）
+```
+
+ここで問題が発生します。`cookies.encrypted[:auth_token]`は`nil`を返します。これは、復号化が失敗したことを意味します。
+
+アプリBは内部的に以下の処理を試みます。
+
+1. SHA256ベースのKeyGeneratorが作成される
+2. 作成されたKeyGeneratorを使用して、復号化用のキーを生成しようとする
+3. しかし、アプリAが暗号化に使用したキーとは異なる
+4. MessageEncryptorがこの間違ったキーを使って復号化を試みるが失敗する
+
+### 問題の本質
+
+問題の本質は「暗号化と復号化で異なるキーが使用されている」という点です。
+
+アプリAがSHA1で生成したキーAを使って暗号化し、アプリBがSHA256で生成したキーBを使って復号化しようとしているため、復号化が失敗してしまうのです。
+
+## 解決策 - Cookie Rotation機能を使った互換性の確保
+
+### Cookie Rotationとは
+
+Cookie Rotationは、古い形式で暗号化されたCookieを新しいバージョンのRailsで読み取れるようにするための機能です。この機能の考え方としては、「複数の復号化方式を試す」というものになります。
+
+通常、RailsがCookieを読み取る際には、デフォルトで設定されている暗号化方式を使用します。しかし、Cookie Rotationを設定すると、デフォルトの方式で失敗した場合に、追加で設定された暗号化方式を順番に試すことができます。
+
+[Railsガイド - 3.4 暗号化cookieや署名済みcookieの設定をローテーションする](https://railsguides.jp/security.html#%E6%9A%97%E5%8F%B7%E5%8C%96cookie%E3%82%84%E7%BD%B2%E5%90%8D%E6%B8%88%E3%81%BFcookie%E3%81%AE%E8%A8%AD%E5%AE%9A%E3%82%92%E3%83%AD%E3%83%BC%E3%83%86%E3%83%BC%E3%82%B7%E3%83%A7%E3%83%B3%E3%81%99%E3%82%8B)
+
+### 実装方法の例
+
+```ruby
+# config/initializers/cookie_rotation.rb
+# 古いバージョンのRailsで暗号化されたCookieを読み取るための設定
+
+Rails.application.config.after_initialize do
+  Rails.application.config.action_dispatch.cookies_rotations.tap do |cookies|
+    # アプリケーションのマスター秘密鍵を取得
+    secret_key_base = Rails.application.config.secret_key_base
+
+    # 古いバージョン（Rails 6.1）と互換性のあるキージェネレーターを作成
+    # SHA1アルゴリズムを使用することで、古い暗号化方式を再現
+    old_version_key_generator = ActiveSupport::KeyGenerator.new(
+      secret_key_base,
+      iterations: 1000,
+      hash_digest_class: OpenSSL::Digest::SHA1
+    )
+
+    # Railsの内部設定から、暗号化に使用するsalt値を取得
+    # これらのsalt値は、異なる用途の鍵を生成するために使用される
+    auth_encrypted_salt = Rails.application.config.action_dispatch.authenticated_encrypted_cookie_salt
+    encrypted_signed_salt = Rails.application.config.action_dispatch.encrypted_signed_cookie_salt
+    signed_salt = Rails.application.config.action_dispatch.signed_cookie_salt
+
+    # 古い暗号化方式で使用されていた鍵を再生成
+    key_length = ActiveSupport::MessageEncryptor.key_len
+    old_encryption_key = old_version_key_generator.generate_key(auth_encrypted_salt, key_length)
+    old_signing_key = old_version_key_generator.generate_key(encrypted_signed_salt)
+    old_signed_cookie_key = old_version_key_generator.generate_key(signed_salt)
+
+    # Cookie Rotation機能に古い暗号化方式を登録
+    # デフォルトの復号化で失敗した場合、これらの古い方式が順番に試される
+    cookies.rotate :encrypted, old_encryption_key, old_signing_key
+    cookies.rotate :signed, old_signing_key
+    cookies.rotate :signed, old_signed_cookie_key
+  end
+end
+```
+
+- `Rails.application.config.after_initialize`：Railsアプリケーションの初期化が完了した後に実行されることを保証するブロック。Cookieの設定は他の多くの設定に依存しているため、すべての初期化が完了してから設定する必要がある
+- `old_version_key_generator`：Rails 6.1と全く同じパラメータでKeyGeneratorを作成。特に`hash_digest_class: OpenSSL::Digest::SHA1`を明示的に指定することで、Rails 6.1と同じSHA1ベースのキー生成を行う
+- salt値の取得：Railsの内部設定から、暗号化用と署名用のsalt値を取得。これらは用途別に異なる鍵を生成するために使用される
+- 古い鍵の再生成：取得したsalt値と古いKeyGeneratorを使用して、Rails 6.1が使用していたものと全く同じ鍵を再生成
+- `cookies.rotate`：再生成した古い鍵をCookie Rotation機能に登録。デフォルトの復号化方式（SHA256）で失敗した場合、この古い方式（SHA1）が試される
+
+### Cookie Rotationの動作
+
+1. ユーザーがアプリBにアクセスし、Cookieを読み取ろうとする
+2. アプリBはまずデフォルトのSHA256方式で復号化を試みる
+3. 復号化に失敗した場合、Cookie Rotationで設定された古い方式（SHA1）を試行する
+4. 古い方式での復号化に成功すれば、元のデータを取得できる
+
+### Cookie Rotationは書き込みには影響しない
+
+Cookie Rotationは「読み取り」の互換性を提供する機能であり、「書き込み」には影響しません。つまり、アプリBが新しくCookieを書き込む際には、Rails7.2のデフォルト方式（SHA256）が使用されてしまいます。
+
+そのため、アプリAとアプリB間でSSOを実現する場合には、アプリBが認証プロバイダーから取得したトークンをCookieにデフォルトのSHA256方式で保存してしまうと、アプリAでは復号化できなくなってしまい、アプリA側での認証が失敗してしまいます。
+
+## 解決策 - 手動での互換性確保（書き込み時の対応）
+
+アプリBとアプリA間でSSOを実現するには、アプリBが新しくCookieを書き込む際にも、アプリAが読み取れる形式（SHA1方式）で暗号化して保存する必要があります。
+
+### なぜ、手動での互換性確保が必要なのか
+
+Railsの`cookies.encryptedメソッド`は、常に現在のデフォルト設定の暗号化方式を使用してしまうみたいです。そのため、アプリBが新しくCookieを書き込む際に、手動で古い方式（SHA1）を使用して暗号化する必要があります。
+
+### 実装方法の例
+
+Rails 6.1互換のMessageEncryptorを作成するヘルパーメソッドを実装します。
+
+```ruby
+  # 古いバージョンのRails（Rails 6.1）と互換性のある暗号化ツールを作成するメソッド
+  # このメソッドは、新しいバージョンのRailsから古い形式でCookieを書き込む必要がある場合に使用します
+  def old_version_encryptor
+    # アプリケーションのマスター秘密鍵を取得
+    secret_key_base = Rails.application.config.secret_key_base
+
+    # 古いバージョン（Rails 6.1）で使用されていたキージェネレーターを再現
+    # SHA1ハッシュアルゴリズムと1000回の反復処理を指定することで、
+    # Rails 6.1と全く同じ方法で暗号化キーを生成できるようにします
+    old_key_generator = ActiveSupport::KeyGenerator.new(
+      secret_key_base,
+      iterations: 1000,
+      hash_digest_class: OpenSSL::Digest::SHA1
+    )
+
+    # Railsの設定から、暗号化と署名に使用するsalt値を取得
+    # これらのsalt値により、同じマスター秘密鍵から異なる用途の鍵を安全に生成できます
+    encryption_salt = Rails.application.config.action_dispatch.authenticated_encrypted_cookie_salt
+    signing_salt = Rails.application.config.action_dispatch.encrypted_signed_cookie_salt
+
+    # 実際の暗号化キーと署名キーを生成
+    # encryption_keyはデータを暗号化するために使用され、
+    # signing_keyは暗号化されたデータに改ざん防止の署名を付けるために使用されます
+    key_length = ActiveSupport::MessageEncryptor.key_len
+    encryption_key = old_key_generator.generate_key(encryption_salt, key_length)
+    signing_key = old_key_generator.generate_key(signing_salt)
+
+    # MessageEncryptorインスタンスを作成して返す
+    # serializer: JSON を指定することで、様々なデータ型を扱えるようにします
+    ActiveSupport::MessageEncryptor.new(encryption_key, signing_key, serializer: JSON)
+  end
+
+  # 使用例：古い形式で暗号化されたCookieを書き込むメソッド
+  def set_compatible_cookie(name, value, expires_in: 15.minutes)
+    # 古いバージョン互換の暗号化ツールを取得
+    encryptor = old_version_encryptor
+
+    # データを手動で暗号化
+    encrypted_value = encryptor.encrypt_and_sign(value)
+
+    # 暗号化済みのデータを通常のCookieとして設定
+    # こうすることで、暗号化方式を完全に制御できます
+    cookies[name] = {
+      value: encrypted_value,
+      expires: expires_in.from_now,
+      httponly: true,
+      secure: Rails.env.production?,
+      same_site: :lax
+    }
+  end
+```
+
+このコードでは、`cookies.encrypted[:auth_token] = value`という簡潔な書き方をせず、以下のステップを踏んでいます。
+
+1. `old_version_encryptor`メソッドを呼び出して、Rails 6.1互換のMessageEncryptorを取得
+2. このencryptorの`encrypt_and_sign`メソッドを使って、データを手動で暗号化
+3. 暗号化済みのデータを、通常のCookieとして設定
+
+このアプローチにより、書き込み時の暗号化方式を完全に制御でき、アプリAでも読み取り可能なCookieを生成できるようになります。
+
+## セキュリティ上の考慮事項
+
+### SHA1を使い続けることのリスク
+
+最も重要な考慮事項は、より新しく安全なSHA256が利用可能な環境でありながら、古いSHA1を使い続けることのリスクです。
+
+アプリAのRailsのバージョンを7.2にアップデートできる場合は、対応した方が良いかもですね。
+
+### SECRET_KEY_BASEの管理
+
+Cookie共有を実現するためには、複数のアプリケーション間でSECRET_KEY_BASEを共有する必要があるため、管理方法には注意が必要です。
+
+### HttpOnlyとSecure属性の設定
+
+- `httponly: true`: JavaScriptからCookieにアクセスできなくなり、XSS攻撃によるCookie窃取のリスクを減らせる
+- `secure: true`: CookieはHTTPS接続でのみ送信され、MITM攻撃によるCookie傍受のリスクを減らせる
+- `same_site: :lax`: クロスサイトリクエストでのCookie送信を制限し、CSRF攻撃を軽減できる
