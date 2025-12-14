@@ -39,15 +39,10 @@ export async function generateMetadata(props: {
   const publishedAt = new Date(post.date).toISOString()
   const modifiedAt = new Date(post.lastmod || post.date).toISOString()
   const authors = authorDetails.map((author) => author.name)
-  let imageList = [siteMetadata.socialBanner]
-  if (post.images) {
-    imageList = typeof post.images === 'string' ? [post.images] : post.images
-  }
-  const ogImages = imageList.map((img) => {
-    return {
-      url: img && img.includes('http') ? img : siteMetadata.siteUrl + img,
-    }
-  })
+
+  // 動的OG画像のURLを生成
+  const ogImageUrl = `${siteMetadata.siteUrl}/api/og?title=${encodeURIComponent(post.title)}`
+  const ogImages = [{ url: ogImageUrl, width: 1200, height: 630, alt: post.title }]
 
   return {
     title: post.title,
@@ -68,7 +63,7 @@ export async function generateMetadata(props: {
       card: 'summary_large_image',
       title: post.title,
       description: post.summary,
-      images: imageList,
+      images: [ogImageUrl],
     },
   }
 }
