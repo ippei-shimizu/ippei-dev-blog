@@ -1,0 +1,356 @@
+---
+title: RailsにおけるStrategy + Registryパターン
+date: '2026-01-12'
+tags: ['Ruby on Rails', 'デザインパターン', 'ソフトウェア設計']
+draft: false
+summary: RailsアプリケーションでStrategyパターンとRegistryパターンを組み合わせて使用する方法について解説する
+---
+
+# Strategyパターン
+
+Strategyパターンは、アルゴリズムや振る舞いをカプセル化し、実行時に切り替え可能にします。共通のインターフェースを持つ複数のクラスを用意し、コンテキストに応じて使い分けます。
+
+## アルゴリズムをカプセル化して、交換可能にする
+
+## 解決できる問題
+
+### 条件分岐の肥大化
+
+```ruby
+class ReportGenerator
+  def generate(format, data)
+    case format
+    when :pdf
+      # pdfを生成するコード
+    when :csv
+      # csvを生成するコード
+    when :excel
+      # excelを生成するコード
+    end
+  end
+end
+```
+
+上記のコードの問題点は、新しいフォーマットを追加するたびに `case` 文が肥大化し、1つのクラスが複数の責任を持ってしまうことです。また、特定のフォーマットだけをテストすることも難しくなります。
+
+## Strategyパターンの構成要素
+
+| 構成要素             | 役割                               |
+| -------------------- | ---------------------------------- |
+| **Strategy**         | 共通のインターフェース             |
+| **ConcreteStrategy** | 具象クラス（各アルゴリズムの実装） |
+| **Context**          | 利用者、Strategyを保持し、委譲する |
+
+## Railsでの実装例（レポート出力）
+
+### Step 1: Strategy（基底クラス / インターフェース）
+
+```ruby
+# app/services/reports/base_exporter.rb
+module Reports
+  class BaseExporter
+    def initialize(data)
+      @data = data
+    end
+
+    # サブクラスで必ず実装すべきメソッド
+    def export
+      raise NotImplementedError, "#{self.class}#export must be implemented"
+    end
+
+    # 共通処理はここに書ける
+    private
+
+    def formatted_timestamp
+      Time.current.strftime('%Y%m%d_%H%M%S')
+    end
+
+    def sanitize(text)
+      text.to_s.gsub(/[<>]/, '')
+    end
+  end
+end
+```
+
+### Step 2: ConcreteStrategy（具象クラス）
+
+```ruby
+# app/services/reports/pdf_exporter.rb
+module Reports
+  class PdfExporter < BaseExporter
+    def export
+      # PDFの処理
+    end
+  end
+end
+```
+
+その他、CsvExporterクラスなども実装します。
+
+### Step 3: Context（Strategyを利用する側）
+
+```ruby
+# app/services/reports/generator.rb
+module Reports
+  class Generator
+    def initialize(exporter)
+      @exporter = exporter # Strategyを注入
+    end
+
+    def generate
+      Rails.logger.info "Generating report with #{@exporter.class.name}"
+
+      {
+        content: @exporter.export,
+        content_type: @exporter.content_type,
+        filename: @exporter.filename
+      }
+    end
+  end
+end
+```
+
+### Step 4: 利用側
+
+```ruby
+# コントローラーでの使用
+class ReportsController < ApplicationController
+  def export
+    data = build_report_data
+
+    # Strategyを選択して注入
+    exporter = case params[:format]
+               when 'pdf' then Reports::PdfExporter.new(data)
+               when 'csv' then Reports::CsvExporter.new(data)
+               else
+                 raise ArgumentError, "Unknown format: #{params[:format]}"
+               end
+
+    generator = Reports::Generator.new(exporter)
+    result = generator.generate
+
+    send_data result[:content],
+              type: result[:content_type],
+              filename: result[:filename]
+  end
+
+  private
+
+  def build_report_data
+  end
+end
+```
+
+## Strategyパターンの特徴
+
+### 依存性の注入（DI）
+
+```ruby
+# Strategyは外部から注入される
+generator = Reports::Generator.new(exporter)
+```
+
+これにより、Generatorクラスは具体的なExporterクラスを知る必要がなくなります。
+
+### ダックタイピング
+
+ダックタイピングとは、オブジェクトの型（クラス）ではなく、そのオブジェクトが持つメソッドや振る舞いによって適合性を判断することです。「もしアヒルのように歩き、アヒルのように鳴くなら、それはアヒルである」という考え方です。
+
+```ruby
+class Duck
+  def speak
+    "ガーガー"
+  end
+end
+
+class Dog
+  def speak
+    "わんわん"
+  end
+end
+
+class Cat
+  def speak
+    "にゃー"
+  end
+end
+
+def make_sound(animal)
+  puts animal.speak # クラスは問わず、speakメソッドがあればOK
+end
+
+make_sound(Duck.new) # => ガーガー
+make_sound(Dog.new)  # => わんわん
+```
+
+`make_sound`メソッドは引数のクラスを一切確認していません。`speak`メソッドを持っていれば、どんなオブジェクトでも受け入れます。
+
+**メリット**
+
+- 柔軟性が高い
+- コードがシンプル
+- テストしやすい
+
+**デメリット**
+
+- 実行時まで型エラーがわからない（NoMethodError）
+- 意図しないオブジェクトが渡されても気づきにくい
+
+```ruby
+# これらはすべて同じように使える
+pdf_exporter.export      # => PDFデータ
+csv_exporter.export      # => CSVデータ
+json_exporter.export     # => JSONデータ
+```
+
+### テストの容易さ
+
+各Strategyを独立してテストできます。
+
+```ruby
+# 各Strategyを独立してテストできる
+RSpec.describe Reports::CsvExporter do
+  let(:data) { { headers: %w[A B], rows: [{ a: 1, b: 2 }] } }
+  let(:exporter) { described_class.new(data) }
+
+  describe '#export' do
+    it 'generates valid CSV' do
+      result = exporter.export
+      expect(result).to include('A,B')
+      expect(result).to include('1,2')
+    end
+  end
+end
+
+# Contextのテストではモックを使える
+RSpec.describe Reports::Generator do
+  let(:mock_exporter) { instance_double(Reports::BaseExporter) }
+
+  before do
+    allow(mock_exporter).to receive(:export).and_return('test content')
+    allow(mock_exporter).to receive(:content_type).and_return('text/plain')
+    allow(mock_exporter).to receive(:filename).and_return('test.txt')
+  end
+
+  it 'delegates to the exporter' do
+    generator = described_class.new(mock_exporter)
+    result = generator.generate
+
+    expect(result[:content]).to eq('test content')
+  end
+end
+```
+
+## Strategyパターンの限界
+
+まだcase文が残ってしまっています。どのStrategyを選ぶかという責務を分離するのが、Registryパターンです。
+
+# Registryパターン
+
+Registryパターンはオブジェクトを一元管理し、キーを使って取得できるようにするパターンです。
+
+## 解決したい課題
+
+### 条件分岐によるオブジェクト生成
+
+```ruby
+# ❌ 新しい選択肢が増えるたびにcase文が肥大化
+def get_exporter(format, data)
+  case format
+  when :pdf   then Reports::PdfExporter.new(data)
+  when :csv   then Reports::CsvExporter.new(data)
+  when :json  then Reports::JsonExporter.new(data)
+  when :excel then Reports::ExcelExporter.new(data)
+  when :xml   then Reports::XmlExporter.new(data)
+  # 増え続ける...
+  end
+end
+```
+
+### 利用可能な選択肢の把握が困難
+
+- どんなフォーマットが使えるか、コードを読まないとわからない
+- UIでドロップダウンを作るときに選択肢をハードコードしがち
+
+## 基本的な実装
+
+```ruby
+# app/services/reports/exporter_registry.rb
+module Reports
+  class ExporterRegistry
+    class << self
+      def register(key, klass)
+        store[key.to_sym] = klass
+      end
+
+      def fetch(key)
+        store.fetch(key.to_sym) do
+          raise KeyError, "Unknown exporter: #{key}. Available: #{keys.join(', ')}"
+        end
+      end
+
+      def keys
+        store.keys
+      end
+
+      def registered?(key)
+        store.key?(key.to_sym)
+      end
+
+      private
+
+      def store
+        @store ||= {}
+      end
+
+    end
+  end
+end
+```
+
+## 登録と利用
+
+```ruby
+# 登録（初期化時に実行）
+# config/initializers/register_exporters.rb
+Reports::ExporterRegistry.register(:pdf,   Reports::PdfExporter)
+Reports::ExporterRegistry.register(:csv,   Reports::CsvExporter)
+Reports::ExporterRegistry.register(:json,  Reports::JsonExporter)
+
+# 利用
+exporter_class = Reports::ExporterRegistry.fetch(:pdf)
+exporter = exporter_class.new(data)
+result = exporter.export
+```
+
+---
+
+# Strategy + Registryの組み合わせ
+
+```ruby
+# app/services/reports/generator.rb
+module Reports
+  class Generator
+    def initialize(format:, data:)
+      # Registryからクラスを取得し、インスタンス化
+      exporter_class = ExporterRegistry.fetch(format)
+      @exporter = exporter_class.new(data)
+      @format = format
+    end
+
+    def generate
+      {
+        content: @exporter.export,
+        content_type: ExporterRegistry.content_type_for(@format),
+        filename: "report_#{timestamp}#{ExporterRegistry.extension_for(@format)}"
+      }
+    end
+
+    private
+
+    def timestamp
+      Time.current.strftime('%Y%m%d_%H%M%S')
+    end
+  end
+end
+```
